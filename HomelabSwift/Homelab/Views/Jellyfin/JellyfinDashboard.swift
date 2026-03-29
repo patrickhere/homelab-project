@@ -4,7 +4,9 @@ struct JellyfinDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var selectedInstanceId: UUID
     @State private var state: LoadableState<Void> = .idle
@@ -12,8 +14,10 @@ struct JellyfinDashboard: View {
     @State private var sessions: [JellyfinSession] = []
     @State private var libraries: [JellyfinLibrary] = []
     @State private var itemCounts: JellyfinItemCounts?
+    @State private var isViewVisible = false
 
     private let serviceColor = ServiceType.jellyfin.colors.primary
+    private let refreshTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     init(instanceId: UUID) {
         self.instanceId = instanceId
@@ -27,6 +31,8 @@ struct JellyfinDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             if let info = systemInfo {
                 heroCard(info)
             }
@@ -47,7 +53,65 @@ struct JellyfinDashboard: View {
         .task(id: selectedInstanceId) {
             await load(force: true)
         }
+        .onAppear { isViewVisible = true }
+        .onDisappear { isViewVisible = false }
+        .onReceive(refreshTimer) { _ in
+            guard scenePhase == .active, isViewVisible else { return }
+            Task { await load(force: true) }
+        }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .jellyfin)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .jellyfin)
+                            withAnimation(.easeInOut) {
+                                systemInfo = nil
+                                sessions = []
+                                libraries = []
+                                itemCounts = nil
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private func heroCard(_ info: JellyfinSystemInfo) -> some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -202,6 +266,8 @@ struct JellyfinDashboard: View {
         }
     }
 
+    // MARK: - Helpers
+
     private func iconForCollectionType(_ type: String?) -> String {
         switch type?.lowercased() {
         case "movies": return "film.fill"
@@ -229,12 +295,18 @@ struct JellyfinDashboard: View {
             async let librariesTask = client.getLibraries()
             async let countsTask = client.getItemCounts()
 
-            systemInfo = try await infoTask
-            sessions = try await sessionsTask
-            libraries = try await librariesTask
-            itemCounts = try await countsTask
+            let loadedInfo = try await infoTask
+            let loadedSessions = try await sessionsTask
+            let loadedLibraries = try await librariesTask
+            let loadedCounts = try await countsTask
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                systemInfo = loadedInfo
+                sessions = loadedSessions
+                libraries = loadedLibraries
+                itemCounts = loadedCounts
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

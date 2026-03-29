@@ -1342,4 +1342,71 @@
     <string name="media_highlight_all_time_download">All-time download: %1$s</string>
     <string name="media_highlight_server">Server: %1$s</string>
     <string name="media_highlight_country">Country: %1$s</string>
+
+    <!-- Jellyfin -->
+    <string name="service_jellyfin">Jellyfin</string>
+    <string name="jellyfin_sessions">Sessions</string>
+    <string name="jellyfin_streams">Streams</string>
+    <string name="jellyfin_items">Items</string>
+    <string name="jellyfin_active_sessions">Active Sessions</string>
+    <string name="jellyfin_playing">Playing: %1$s</string>
+
+    <!-- Immich -->
+    <string name="service_immich">Immich</string>
+    <string name="immich_photos">Photos</string>
+    <string name="immich_videos">Videos</string>
+    <string name="immich_storage">Storage</string>
+    <string name="immich_users">Users</string>
+
+    <!-- Grafana -->
+    <string name="service_grafana">Grafana</string>
+    <string name="grafana_dashboards">Dashboards</string>
+    <string name="grafana_alerts">Alerts</string>
+    <string name="grafana_firing">Firing</string>
+
+    <!-- SABnzbd -->
+    <string name="service_sabnzbd">SABnzbd</string>
+    <string name="sabnzbd_paused">Paused</string>
+    <string name="sabnzbd_speed">Speed</string>
+    <string name="sabnzbd_queue">Queue</string>
+    <string name="sabnzbd_left">Left</string>
+    <string name="sabnzbd_eta">ETA</string>
+    <string name="sabnzbd_disk_free">Disk Free</string>
+    <string name="sabnzbd_history">History</string>
+    <string name="sabnzbd_completed">Completed</string>
+
+    <!-- Proxmox VE -->
+    <string name="service_proxmox">Proxmox VE</string>
+    <string name="proxmox_nodes">Nodes</string>
+    <string name="proxmox_vms">VMs</string>
+    <string name="proxmox_lxcs">LXCs</string>
+    <string name="proxmox_resources">Resources</string>
+    <string name="proxmox_running_count">%1$d running</string>
+    <string name="proxmox_node_count">%1$d node(s)</string>
+    <string name="proxmox_online">Online</string>
+    <string name="proxmox_offline">Offline</string>
+    <string name="proxmox_vm_label">VM</string>
+    <string name="proxmox_lxc_label">LXC</string>
+    <string name="proxmox_on_node">%1$s on %2$s</string>
+    <string name="proxmox_cpu_mem_uptime">CPU: %1$d%%  |  Memory: %2$d%%  |  Uptime: %3$s</string>
+
+    <!-- Proxmox Backup Server -->
+    <string name="service_pbs">Proxmox Backup Server</string>
+    <string name="pbs_datastores">Datastores</string>
+    <string name="pbs_datastore_usage">Datastore Usage</string>
+    <string name="pbs_datastore_count">%1$d datastore(s)</string>
+    <string name="pbs_used_percent">%1$d%% used -- %2$s / %3$s</string>
+
+    <!-- Tdarr -->
+    <string name="service_tdarr">Tdarr</string>
+    <string name="tdarr_subtitle">Media optimization</string>
+    <string name="tdarr_files">Files</string>
+    <string name="tdarr_transcodes">Transcodes</string>
+    <string name="tdarr_health_checks">Health Checks</string>
+    <string name="tdarr_saved">Saved</string>
+    <string name="tdarr_nodes">Nodes</string>
+    <string name="tdarr_score">Score</string>
+    <string name="tdarr_workers">%1$d worker(s)</string>
+    <string name="tdarr_online">Online</string>
+    <string name="tdarr_offline">Offline</string>
 </resources>

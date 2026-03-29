@@ -1,5 +1,6 @@
 package com.homelab.app.ui.jellyfin
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,18 +33,45 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homelab.app.R
 import com.homelab.app.data.repository.JellyfinDashboardData
 import com.homelab.app.data.repository.JellyfinSession
 import com.homelab.app.ui.components.ServiceIcon
+import com.homelab.app.ui.components.ServiceInstancePicker
+import com.homelab.app.ui.theme.isThemeDark
 import com.homelab.app.ui.theme.primaryColor
 import com.homelab.app.util.ServiceType
+
+private fun jellyfinPageBackground(isDarkTheme: Boolean, accent: Color): Brush = if (isDarkTheme) {
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFF0A0E12),
+            Color(0xFF0F1318),
+            accent.copy(alpha = 0.03f),
+            Color(0xFF0A0D11)
+        )
+    )
+} else {
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFFF8F9FC),
+            Color(0xFFF5F7FA),
+            accent.copy(alpha = 0.010f),
+            Color(0xFFF7F8FB)
+        )
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -53,55 +81,74 @@ fun JellyfinDashboardScreen(
     viewModel: JellyfinViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val instances by viewModel.instances.collectAsStateWithLifecycle()
     val accent = ServiceType.JELLYFIN.primaryColor
+    val isDarkTheme = isThemeDark()
+    val pageBrush = remember(isDarkTheme) { jellyfinPageBackground(isDarkTheme, accent) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Jellyfin") },
+                title = { Text(stringResource(R.string.service_jellyfin)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = accent)
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh), tint = accent)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        when (val state = uiState) {
-            JellyfinUiState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = accent)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageBrush)
+        ) {
+            when (val state = uiState) {
+                JellyfinUiState.Loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = accent)
+                    }
                 }
-            }
-            is JellyfinUiState.Error -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = state.message,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        TextButton(onClick = { viewModel.refresh() }) {
-                            Text("Retry")
+                is JellyfinUiState.Error -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = state.message,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { viewModel.refresh() }) {
+                                Text(stringResource(R.string.retry))
+                            }
                         }
                     }
                 }
-            }
-            is JellyfinUiState.Success -> {
-                JellyfinContent(padding = padding, data = state.data, accent = accent)
+                is JellyfinUiState.Success -> {
+                    JellyfinContent(
+                        padding = padding,
+                        data = state.data,
+                        accent = accent,
+                        instances = instances,
+                        instanceId = viewModel.instanceId,
+                        onSelectInstance = { instance ->
+                            viewModel.setPreferredInstance(instance.id)
+                            onNavigateToInstance(instance.id)
+                        }
+                    )
+                }
             }
         }
     }
@@ -112,13 +159,24 @@ fun JellyfinDashboardScreen(
 private fun JellyfinContent(
     padding: PaddingValues,
     data: JellyfinDashboardData,
-    accent: androidx.compose.ui.graphics.Color
+    accent: Color,
+    instances: List<com.homelab.app.domain.model.ServiceInstance>,
+    instanceId: String,
+    onSelectInstance: (com.homelab.app.domain.model.ServiceInstance) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item {
+            ServiceInstancePicker(
+                instances = instances,
+                selectedInstanceId = instanceId,
+                onInstanceSelected = onSelectInstance
+            )
+        }
+
         item {
             Surface(
                 shape = RoundedCornerShape(24.dp),
@@ -156,10 +214,10 @@ private fun JellyfinContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        MetricPill("Sessions", data.activeSessions.toString(), accent)
-                        MetricPill("Streams", data.activeStreams.toString(), accent)
+                        MetricPill(stringResource(R.string.jellyfin_sessions), data.activeSessions.toString(), accent)
+                        MetricPill(stringResource(R.string.jellyfin_streams), data.activeStreams.toString(), accent)
                         if (data.totalItems > 0) {
-                            MetricPill("Items", data.totalItems.toString(), accent)
+                            MetricPill(stringResource(R.string.jellyfin_items), data.totalItems.toString(), accent)
                         }
                     }
                 }
@@ -168,7 +226,7 @@ private fun JellyfinContent(
 
         if (data.sessions.isNotEmpty()) {
             item {
-                Text("Active Sessions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.jellyfin_active_sessions), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             items(data.sessions, key = { it.id }) { session ->
                 SessionCard(session = session, accent = accent)
@@ -178,7 +236,7 @@ private fun JellyfinContent(
 }
 
 @Composable
-private fun MetricPill(label: String, value: String, accent: androidx.compose.ui.graphics.Color) {
+private fun MetricPill(label: String, value: String, accent: Color) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = accent.copy(alpha = 0.12f)
@@ -191,7 +249,7 @@ private fun MetricPill(label: String, value: String, accent: androidx.compose.ui
 }
 
 @Composable
-private fun SessionCard(session: JellyfinSession, accent: androidx.compose.ui.graphics.Color) {
+private fun SessionCard(session: JellyfinSession, accent: Color) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow
@@ -216,7 +274,7 @@ private fun SessionCard(session: JellyfinSession, accent: androidx.compose.ui.gr
             )
             if (session.nowPlayingTitle != null) {
                 Text(
-                    text = "Playing: ${session.nowPlayingTitle}",
+                    text = stringResource(R.string.jellyfin_playing, session.nowPlayingTitle),
                     style = MaterialTheme.typography.labelMedium,
                     color = accent,
                     maxLines = 1,

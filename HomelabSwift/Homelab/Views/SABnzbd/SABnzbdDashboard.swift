@@ -4,14 +4,18 @@ struct SABnzbdDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var selectedInstanceId: UUID
     @State private var state: LoadableState<Void> = .idle
     @State private var queue: SABnzbdQueueInfo?
     @State private var history: [SABnzbdHistoryEntry] = []
+    @State private var isViewVisible = false
 
     private let serviceColor = ServiceType.sabnzbd.colors.primary
+    private let refreshTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
 
     init(instanceId: UUID) {
         self.instanceId = instanceId
@@ -25,6 +29,8 @@ struct SABnzbdDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             if let q = queue {
                 heroCard(q)
                 statsGrid(q)
@@ -38,7 +44,63 @@ struct SABnzbdDashboard: View {
         .task(id: selectedInstanceId) {
             await load(force: true)
         }
+        .onAppear { isViewVisible = true }
+        .onDisappear { isViewVisible = false }
+        .onReceive(refreshTimer) { _ in
+            guard scenePhase == .active, isViewVisible else { return }
+            Task { await load(force: true) }
+        }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .sabnzbd)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .sabnzbd)
+                            withAnimation(.easeInOut) {
+                                queue = nil
+                                history = []
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private func heroCard(_ q: SABnzbdQueueInfo) -> some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -152,6 +214,8 @@ struct SABnzbdDashboard: View {
         }
     }
 
+    // MARK: - Data Loading
+
     private func load(force: Bool) async {
         if state.isLoading { return }
         if case .loaded = state, !force { return }
@@ -166,10 +230,14 @@ struct SABnzbdDashboard: View {
             async let queueTask = client.getQueue()
             async let historyTask = client.getHistory(limit: 10)
 
-            queue = try await queueTask
-            history = try await historyTask
+            let loadedQueue = try await queueTask
+            let loadedHistory = try await historyTask
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                queue = loadedQueue
+                history = loadedHistory
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

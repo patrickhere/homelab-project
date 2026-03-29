@@ -4,6 +4,7 @@ struct ProxmoxDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedInstanceId: UUID
@@ -26,6 +27,8 @@ struct ProxmoxDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             heroCard
 
             if !nodes.isEmpty {
@@ -47,6 +50,57 @@ struct ProxmoxDashboard: View {
             await load(force: true)
         }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .proxmox)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .proxmox)
+                            withAnimation(.easeInOut) {
+                                nodes = []
+                                vms = []
+                                storages = []
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private var heroCard: some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -211,6 +265,8 @@ struct ProxmoxDashboard: View {
         }
     }
 
+    // MARK: - Helpers
+
     private func formatUptime(_ seconds: Int) -> String {
         let days = seconds / 86400
         let hours = (seconds % 86400) / 3600
@@ -236,11 +292,16 @@ struct ProxmoxDashboard: View {
             async let vmsTask = client.getVMs()
             async let storagesTask = client.getStorages()
 
-            nodes = try await nodesTask
-            vms = try await vmsTask
-            storages = try await storagesTask
+            let loadedNodes = try await nodesTask
+            let loadedVMs = try await vmsTask
+            let loadedStorages = try await storagesTask
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                nodes = loadedNodes
+                vms = loadedVMs
+                storages = loadedStorages
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

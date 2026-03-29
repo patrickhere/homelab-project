@@ -4,6 +4,7 @@ struct TdarrDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedInstanceId: UUID
@@ -25,6 +26,8 @@ struct TdarrDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             heroCard
 
             if let stats {
@@ -41,6 +44,56 @@ struct TdarrDashboard: View {
             await load(force: true)
         }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .tdarr)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .tdarr)
+                            withAnimation(.easeInOut) {
+                                nodes = []
+                                stats = nil
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private var heroCard: some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -172,6 +225,8 @@ struct TdarrDashboard: View {
         }
     }
 
+    // MARK: - Data Loading
+
     private func load(force: Bool) async {
         if state.isLoading { return }
         if case .loaded = state, !force { return }
@@ -186,10 +241,14 @@ struct TdarrDashboard: View {
             async let nodesTask = client.getNodes()
             async let statsTask = client.getStats()
 
-            nodes = try await nodesTask
-            stats = try await statsTask
+            let loadedNodes = try await nodesTask
+            let loadedStats = try await statsTask
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                nodes = loadedNodes
+                stats = loadedStats
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

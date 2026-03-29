@@ -1,5 +1,6 @@
 package com.homelab.app.ui.grafana
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,20 +32,47 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homelab.app.R
 import com.homelab.app.data.repository.GrafanaAlert
 import com.homelab.app.data.repository.GrafanaDashboardData
 import com.homelab.app.data.repository.GrafanaDashboardItem
+import com.homelab.app.domain.model.ServiceInstance
 import com.homelab.app.ui.components.ServiceIcon
+import com.homelab.app.ui.components.ServiceInstancePicker
+import com.homelab.app.ui.theme.isThemeDark
 import com.homelab.app.ui.theme.primaryColor
 import com.homelab.app.util.ServiceType
+
+private fun grafanaPageBackground(isDarkTheme: Boolean, accent: Color): Brush = if (isDarkTheme) {
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFF0A0E12),
+            Color(0xFF0F1318),
+            accent.copy(alpha = 0.03f),
+            Color(0xFF0A0D11)
+        )
+    )
+} else {
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFFF8F9FC),
+            Color(0xFFF5F7FA),
+            accent.copy(alpha = 0.010f),
+            Color(0xFFF7F8FB)
+        )
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -54,43 +82,62 @@ fun GrafanaDashboardScreen(
     viewModel: GrafanaViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val instances by viewModel.instances.collectAsStateWithLifecycle()
     val accent = ServiceType.GRAFANA.primaryColor
+    val isDarkTheme = isThemeDark()
+    val pageBrush = remember(isDarkTheme) { grafanaPageBackground(isDarkTheme, accent) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Grafana") },
+                title = { Text(stringResource(R.string.service_grafana)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = accent)
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh), tint = accent)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        when (val state = uiState) {
-            GrafanaUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = accent)
-                }
-            }
-            is GrafanaUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(state.message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        TextButton(onClick = { viewModel.refresh() }) { Text("Retry") }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageBrush)
+        ) {
+            when (val state = uiState) {
+                GrafanaUiState.Loading -> {
+                    Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = accent)
                     }
                 }
-            }
-            is GrafanaUiState.Success -> {
-                GrafanaContent(padding = padding, data = state.data, accent = accent)
+                is GrafanaUiState.Error -> {
+                    Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(state.message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { viewModel.refresh() }) { Text(stringResource(R.string.retry)) }
+                        }
+                    }
+                }
+                is GrafanaUiState.Success -> {
+                    GrafanaContent(
+                        padding = padding,
+                        data = state.data,
+                        accent = accent,
+                        instances = instances,
+                        instanceId = viewModel.instanceId,
+                        onSelectInstance = { instance ->
+                            viewModel.setPreferredInstance(instance.id)
+                            onNavigateToInstance(instance.id)
+                        }
+                    )
+                }
             }
         }
     }
@@ -98,28 +145,43 @@ fun GrafanaDashboardScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GrafanaContent(padding: PaddingValues, data: GrafanaDashboardData, accent: Color) {
+private fun GrafanaContent(
+    padding: PaddingValues,
+    data: GrafanaDashboardData,
+    accent: Color,
+    instances: List<ServiceInstance>,
+    instanceId: String,
+    onSelectInstance: (ServiceInstance) -> Unit
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
+            ServiceInstancePicker(
+                instances = instances,
+                selectedInstanceId = instanceId,
+                onInstanceSelected = onSelectInstance
+            )
+        }
+
+        item {
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         ServiceIcon(type = ServiceType.GRAFANA, size = 64.dp, iconSize = 36.dp, cornerRadius = 18.dp)
                         Column {
-                            Text("Grafana", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.service_grafana), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                             Text("v${data.version}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricPill("Dashboards", data.dashboardCount.toString(), accent)
-                        MetricPill("Alerts", data.alertCount.toString(), accent)
+                        MetricPill(stringResource(R.string.grafana_dashboards), data.dashboardCount.toString(), accent)
+                        MetricPill(stringResource(R.string.grafana_alerts), data.alertCount.toString(), accent)
                         if (data.firingAlerts > 0) {
-                            MetricPill("Firing", data.firingAlerts.toString(), MaterialTheme.colorScheme.error)
+                            MetricPill(stringResource(R.string.grafana_firing), data.firingAlerts.toString(), MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -128,7 +190,7 @@ private fun GrafanaContent(padding: PaddingValues, data: GrafanaDashboardData, a
 
         if (data.dashboards.isNotEmpty()) {
             item {
-                Text("Dashboards", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.grafana_dashboards), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             items(data.dashboards.take(15), key = { "dash-${it.uid}" }) { dashboard ->
                 DashboardCard(dashboard = dashboard, accent = accent)
@@ -137,7 +199,7 @@ private fun GrafanaContent(padding: PaddingValues, data: GrafanaDashboardData, a
 
         if (data.alerts.isNotEmpty()) {
             item {
-                Text("Alerts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.grafana_alerts), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             items(data.alerts.take(10), key = { "alert-${it.name}" }) { alert ->
                 AlertCard(alert = alert, accent = accent)

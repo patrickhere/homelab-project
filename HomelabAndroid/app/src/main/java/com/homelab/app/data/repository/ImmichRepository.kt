@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,7 +65,7 @@ class ImmichRepository @Inject constructor(
         val totalVideos = stats?.int("videos") ?: 0
         val totalUsage = stats?.long("usage") ?: 0L
         val totalUsers = stats?.int("usageByUser")?.let { 0 }
-            ?: (stats?.get("usageByUser") as? kotlinx.serialization.json.JsonArray)?.size
+            ?: (stats?.get("usageByUser") as? JsonArray)?.size
             ?: 0
 
         ImmichDashboardData(

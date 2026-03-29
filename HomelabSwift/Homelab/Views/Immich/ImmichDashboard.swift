@@ -4,6 +4,7 @@ struct ImmichDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedInstanceId: UUID
@@ -26,6 +27,8 @@ struct ImmichDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             if let info = serverInfo {
                 heroCard(info)
             }
@@ -43,6 +46,57 @@ struct ImmichDashboard: View {
             await load(force: true)
         }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .immich)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .immich)
+                            withAnimation(.easeInOut) {
+                                serverInfo = nil
+                                statistics = nil
+                                assetStats = nil
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private func heroCard(_ info: ImmichServerInfo) -> some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -129,6 +183,8 @@ struct ImmichDashboard: View {
         }
     }
 
+    // MARK: - Data Loading
+
     private func load(force: Bool) async {
         if state.isLoading { return }
         if case .loaded = state, !force { return }
@@ -144,11 +200,16 @@ struct ImmichDashboard: View {
             async let statsTask = client.getServerStatistics()
             async let assetTask = client.getAssetStatistics()
 
-            serverInfo = try await infoTask
-            statistics = try await statsTask
-            assetStats = try await assetTask
+            let loadedInfo = try await infoTask
+            let loadedStats = try await statsTask
+            let loadedAssets = try await assetTask
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                serverInfo = loadedInfo
+                statistics = loadedStats
+                assetStats = loadedAssets
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

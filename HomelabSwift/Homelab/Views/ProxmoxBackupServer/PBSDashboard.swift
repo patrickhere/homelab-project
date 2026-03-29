@@ -4,6 +4,7 @@ struct PBSDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedInstanceId: UUID
@@ -26,6 +27,8 @@ struct PBSDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             heroCard
 
             if !usage.isEmpty {
@@ -43,6 +46,57 @@ struct PBSDashboard: View {
             await load(force: true)
         }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .proxmoxBackupServer)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .proxmoxBackupServer)
+                            withAnimation(.easeInOut) {
+                                datastores = []
+                                usage = []
+                                tasks = []
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private var heroCard: some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -163,6 +217,8 @@ struct PBSDashboard: View {
         }
     }
 
+    // MARK: - Data Loading
+
     private func load(force: Bool) async {
         if state.isLoading { return }
         if case .loaded = state, !force { return }
@@ -178,11 +234,16 @@ struct PBSDashboard: View {
             async let usageTask = client.getDatastoreUsage()
             async let tasksTask = client.getRecentTasks(limit: 10)
 
-            datastores = try await datastoresTask
-            usage = try await usageTask
-            tasks = try await tasksTask
+            let loadedDatastores = try await datastoresTask
+            let loadedUsage = try await usageTask
+            let loadedTasks = try await tasksTask
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                datastores = loadedDatastores
+                usage = loadedUsage
+                tasks = loadedTasks
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

@@ -4,6 +4,7 @@ struct GrafanaDashboard: View {
     let instanceId: UUID
 
     @Environment(ServicesStore.self) private var servicesStore
+    @Environment(Localizer.self) private var localizer
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedInstanceId: UUID
@@ -26,6 +27,8 @@ struct GrafanaDashboard: View {
             state: state,
             onRefresh: { await load(force: true) }
         ) {
+            instancePicker
+
             if let health {
                 heroCard(health)
             }
@@ -45,6 +48,57 @@ struct GrafanaDashboard: View {
             await load(force: true)
         }
     }
+
+    // MARK: - Instance Picker
+
+    private var instancePicker: some View {
+        let instances = servicesStore.instances(for: .grafana)
+        return Group {
+            if instances.count > 1 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(localizer.t.dashboardInstances.sentenceCased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textMuted)
+
+                    ForEach(instances) { instance in
+                        Button {
+                            HapticManager.light()
+                            selectedInstanceId = instance.id
+                            servicesStore.setPreferredInstance(id: instance.id, for: .grafana)
+                            withAnimation(.easeInOut) {
+                                health = nil
+                                dashboards = []
+                                alerts = []
+                                state = .idle
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(instance.id == selectedInstanceId ? serviceColor : AppTheme.textMuted.opacity(0.4))
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(instance.url)
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textMuted)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+                            }
+                            .padding(14)
+                            .glassCard(tint: instance.id == selectedInstanceId ? serviceColor.opacity(0.1) : nil)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Cards
 
     private func heroCard(_ info: GrafanaHealthInfo) -> some View {
         GlassCard(tint: serviceColor.opacity(colorScheme == .light ? 0.14 : 0.10)) {
@@ -168,6 +222,8 @@ struct GrafanaDashboard: View {
         }
     }
 
+    // MARK: - Data Loading
+
     private func load(force: Bool) async {
         if state.isLoading { return }
         if case .loaded = state, !force { return }
@@ -183,11 +239,16 @@ struct GrafanaDashboard: View {
             async let dashboardsTask = client.getDashboards()
             async let alertsTask = client.getAlerts()
 
-            health = try await healthTask
-            dashboards = try await dashboardsTask
-            alerts = (try? await alertsTask) ?? []
+            let loadedHealth = try await healthTask
+            let loadedDashboards = try await dashboardsTask
+            let loadedAlerts = (try? await alertsTask) ?? []
 
-            state = .loaded(())
+            withAnimation(.easeInOut) {
+                health = loadedHealth
+                dashboards = loadedDashboards
+                alerts = loadedAlerts
+                state = .loaded(())
+            }
         } catch let apiError as APIError {
             state = .error(apiError)
         } catch {

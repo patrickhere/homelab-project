@@ -1,5 +1,6 @@
 package com.homelab.app.ui.pbs
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,19 +33,46 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.homelab.app.R
 import com.homelab.app.data.repository.PBSDashboardData
 import com.homelab.app.data.repository.PBSDatastoreUsage
+import com.homelab.app.domain.model.ServiceInstance
 import com.homelab.app.ui.components.ServiceIcon
+import com.homelab.app.ui.components.ServiceInstancePicker
+import com.homelab.app.ui.theme.isThemeDark
 import com.homelab.app.ui.theme.primaryColor
 import com.homelab.app.util.ServiceType
+
+private fun pbsPageBackground(isDarkTheme: Boolean, accent: Color): Brush = if (isDarkTheme) {
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFF0A0E12),
+            Color(0xFF0F1318),
+            accent.copy(alpha = 0.03f),
+            Color(0xFF0A0D11)
+        )
+    )
+} else {
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFFF8F9FC),
+            Color(0xFFF5F7FA),
+            accent.copy(alpha = 0.010f),
+            Color(0xFFF7F8FB)
+        )
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -54,43 +82,62 @@ fun PBSDashboardScreen(
     viewModel: PBSViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val instances by viewModel.instances.collectAsStateWithLifecycle()
     val accent = ServiceType.PROXMOX_BACKUP_SERVER.primaryColor
+    val isDarkTheme = isThemeDark()
+    val pageBrush = remember(isDarkTheme) { pbsPageBackground(isDarkTheme, accent) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Proxmox Backup Server") },
+                title = { Text(stringResource(R.string.service_pbs)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = accent)
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh), tint = accent)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        when (val state = uiState) {
-            PBSUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = accent)
-                }
-            }
-            is PBSUiState.Error -> {
-                Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(state.message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        TextButton(onClick = { viewModel.refresh() }) { Text("Retry") }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageBrush)
+        ) {
+            when (val state = uiState) {
+                PBSUiState.Loading -> {
+                    Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = accent)
                     }
                 }
-            }
-            is PBSUiState.Success -> {
-                PBSContent(padding = padding, data = state.data, accent = accent)
+                is PBSUiState.Error -> {
+                    Box(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(state.message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TextButton(onClick = { viewModel.refresh() }) { Text(stringResource(R.string.retry)) }
+                        }
+                    }
+                }
+                is PBSUiState.Success -> {
+                    PBSContent(
+                        padding = padding,
+                        data = state.data,
+                        accent = accent,
+                        instances = instances,
+                        instanceId = viewModel.instanceId,
+                        onSelectInstance = { instance ->
+                            viewModel.setPreferredInstance(instance.id)
+                            onNavigateToInstance(instance.id)
+                        }
+                    )
+                }
             }
         }
     }
@@ -98,39 +145,54 @@ fun PBSDashboardScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PBSContent(padding: PaddingValues, data: PBSDashboardData, accent: Color) {
+private fun PBSContent(
+    padding: PaddingValues,
+    data: PBSDashboardData,
+    accent: Color,
+    instances: List<ServiceInstance>,
+    instanceId: String,
+    onSelectInstance: (ServiceInstance) -> Unit
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
+            ServiceInstancePicker(
+                instances = instances,
+                selectedInstanceId = instanceId,
+                onInstanceSelected = onSelectInstance
+            )
+        }
+
+        item {
             Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                 Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         ServiceIcon(type = ServiceType.PROXMOX_BACKUP_SERVER, size = 64.dp, iconSize = 36.dp, cornerRadius = 18.dp)
                         Column {
-                            Text("Proxmox Backup Server", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("${data.datastores.size} datastore(s)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.service_pbs), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.pbs_datastore_count, data.datastores.size), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricPill("Datastores", data.datastores.size.toString(), accent)
+                        MetricPill(stringResource(R.string.pbs_datastores), data.datastores.size.toString(), accent)
                     }
                 }
             }
         }
 
         if (data.datastoreUsage.isNotEmpty()) {
-            item { Text("Datastore Usage", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item { Text(stringResource(R.string.pbs_datastore_usage), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
             items(data.datastoreUsage, key = { "usage-${it.store}" }) { usage ->
                 DatastoreUsageCard(usage = usage, accent = accent)
             }
         }
 
         if (data.datastores.isNotEmpty()) {
-            item { Text("Datastores", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item { Text(stringResource(R.string.pbs_datastores), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
             items(data.datastores, key = { "ds-${it.name}" }) { ds ->
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -168,7 +230,7 @@ private fun DatastoreUsageCard(usage: PBSDatastoreUsage, accent: Color) {
                 trackColor = accent.copy(alpha = 0.12f)
             )
             Text(
-                "$usedPercent% used -- ${formatBytes(usage.used)} / ${formatBytes(usage.total)}",
+                stringResource(R.string.pbs_used_percent, usedPercent, formatBytes(usage.used), formatBytes(usage.total)),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
